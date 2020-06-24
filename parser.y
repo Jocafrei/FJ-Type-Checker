@@ -15,7 +15,6 @@ import FJTypeChecker
       "boolean"    { TokenBool       }
       "int"        { TokenIntTy      }
       "return"     { TokenReturn     }
-      "implements" { TokenImplements }
       "while"      { TokenWhile      }
       '('          { TokenOB         }
       ')'          { TokenCB         }
@@ -37,7 +36,7 @@ import FJTypeChecker
       int          { TokenInt $$     }
 %%
 
-ClassDeclaration : "class" var "extends" var "implements" var '{' ListTyString Constructor Methods '}' { Class $2 $4 $6 $8 $9 $10 }
+ClassDeclaration : "class" var "extends" var '{' ListTyString Constructor Methods '}' { Class $2 $4 $6 $7 $8 }
 
 Term : var                                               { TVar $1                    }
      | Term '.' var                                      { TFieldAcc $1 $3            }
@@ -56,6 +55,8 @@ Operation : var                                          { OpString $1          
           | int                                          { OpInt $1                   }
           | Operation Operator Operation                 { Oper $1 $3                 }
 
+Arith     : Operation Operator Operation                 { Oper $1 $3                 }
+
 Command : "while" '(' Expression ')' '{' CommandList '}' { ComWhile $3 $6             }
         | var '=' Operation ';'                          { ComAssign $1 $3            }
         | Ty var '=' Operation ';'                       { ComDeclare $1 $2 $4        }
@@ -68,7 +69,8 @@ Comparator : "=="                                        {                      
 
 Expression : var Comparator int                          { Expr $1 $3                 }
 
-Value : '\\' Parameters "->" Term                        { PureLambdaExpression $2 $4 }
+Value : '\\' '(' Parameters ')' "->" Term                { PureLambdaExpression $3 $6 }
+      | '\\' '(' Parameters ')' "->" Arith               { PureLambdaExprOp $3 $6     }
 
 Parameters : Parameter                                   { [$1]                       }
            | Parameters ',' Parameter                    { $3 : $1                    }
@@ -141,7 +143,6 @@ data Token
       | TokenLambda
       | TokenInt Int
       | TokenExtends
-      | TokenImplements
       | TokenVar String
       deriving Show
 
@@ -177,7 +178,6 @@ lexVar cs =
     ("super", rest)      -> TokenSuper      : lexer rest
     ("boolean", rest)    -> TokenBool       : lexer rest
     ("return", rest)     -> TokenReturn     : lexer rest
-    ("implements", rest) -> TokenImplements : lexer rest
     ("while", rest)      -> TokenWhile      : lexer rest
     ("int", rest)        -> TokenIntTy      : lexer rest
     (var, rest)          -> TokenVar var    : lexer rest

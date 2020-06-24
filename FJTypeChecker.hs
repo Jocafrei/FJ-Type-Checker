@@ -5,7 +5,7 @@ type Field                = String
 type ClassName            = String
 type MethodName           = String
 
-data ClassDeclaration     = Class String String String [(Ty, String)] Constructor [Method]
+data ClassDeclaration     = Class String String [(Ty, String)] Constructor [Method]
                           deriving(Eq, Show)
 
 data InterfaceDeclaration = String [String] [Header]
@@ -53,6 +53,7 @@ data Var                  = Var String
 
 data Value                = ProperValue
                           | PureLambdaExpression [Parameter] Term
+                          | PureLambdaExprOp [Parameter] Operation
                           deriving(Eq, Show)
 
 data ProperValue          = TObjValueCreation String [Value]
@@ -72,16 +73,16 @@ data Ty                   = TyBool
 
 getDeclaration :: ClassName -> ClassTable -> Maybe ClassDeclaration
 getDeclaration c []                          = Nothing
-getDeclaration c ((d, Class e f g x y z):xs) = if c == d 
-                                             then Just (Class e f g x y z) 
+getDeclaration c ((d, Class e f x y z):xs) = if c == d 
+                                             then Just (Class e f x y z) 
                                              else getDeclaration c xs
 
 subtyping :: String -> String -> ClassTable -> Bool
-subtyping _ "Obj" _ = True
-subtyping "Obj" _ _ = False
+subtyping _ "Object" _ = True
+subtyping "Object" _ _ = False
 subtyping c d ct | c == d = True
                  | otherwise = case (getDeclaration c ct) of 
-                                    Just (Class _ f _ _ _ _) -> if (d == f) 
+                                    Just (Class _ f _ _ _) -> if (d == f) 
                                                                   then True 
                                                                 else (subtyping d f ct)
                                     Nothing -> False
@@ -106,12 +107,12 @@ getExtendedFields []         = Just []
 getExtendedFields ((a,b):xs) = Just [(a,b)]
 
 getFields :: ClassName -> ClassTable -> Maybe [(Ty, String)]
-getFields "Obj" _ = Just []
-getFields c ((d, Class e f g x y z):xs) = if (c == d) 
-                                          then (case (getFields f ((d, Class e f g x y z):xs)) of 
-                                                     Just a -> Just (a ++ x)
-                                                     Nothing -> Nothing)
-                                          else (getFields c xs)
+getFields "Object" _ = Just []
+getFields c ((d, Class e f x y z):xs) = if (c == d) 
+                                        then (case (getFields f ((d, Class e f x y z):xs)) of 
+                                                    Just a -> Just (a ++ x)
+                                                    Nothing -> Nothing)
+                                        else (getFields c xs)
 getFields _ _ = Nothing
 
 findField :: String -> [(Ty, String)] -> Bool
@@ -132,9 +133,9 @@ findOnHeader :: String -> Header -> Maybe (Ty, [Ty])
 findOnHeader mName (Head t m l) = if mName == m then Just (t, getTypes l) else Nothing
 
 mType :: String -> String -> ClassTable -> Maybe (Ty, [Ty])
-mtype _ "Obj" _ = Nothing
+mtype _ "Object" _ = Nothing
 mType mName c ct = case (getDeclaration c ct) of 
-                        Just (Class _ d _ _ _ m) -> findMethod mName m
+                        Just (Class _ d _ _ m) -> findMethod mName m
                         Nothing -> Nothing
 
 allRight :: [(Term, Ty)] -> Context -> ClassTable -> Bool
@@ -144,7 +145,12 @@ allRight ((a,b):xs) ctx ct = if (typeOf a ctx ct TyError) == b
                              else False
 
 typeOf :: Term -> Context -> ClassTable -> Ty -> Ty
-typeOf (TValue v) ctx ct t1 = t1
+typeOf (TValue (PureLambdaExpression _ t)) ctx ct t1 = if t1 == (typeOf t ctx ct t1)
+                                                        then t1 
+                                                     else TyError
+typeOf (TValue (PureLambdaExprOp p t)) ctx ct t1     = if t1 == TyInt && allInt t ctx
+                                                        then t1 
+                                                     else TyError
 typeOf (TVar s) ctx _ _             = getTypeFromContext s ctx
 typeOf (TFieldAcc t s) ctx ct _     = let t1 = typeOf t ctx ct TyError 
                                     in case t1 of 
@@ -211,38 +217,38 @@ updateContextCommand ((ComDeclare t s _):xs) ctx = (s, t):(updateContextCommand 
 updateContextCommand ((_):xs) ctx = updateContextCommand xs ctx 
 
 typeOfMethod :: ClassDeclaration -> Context -> ClassTable -> Method -> Bool
-typeOfMethod (Class c d _ _ _ _) ctx ct (Met (Head (TyClass t1) m p) comms t) = let ctx1 = (map(\(a, b) -> (b, a)) p)++ctx
-                                                                                    ctx2 = ("this", (TyClass c)):ctx1
-                                                                                    ctx3 = updateContext p ctx2
-                                                                                    ctx4 = updateContextCommand comms ctx3
-                                                                                    in case (typeOf t ctx4 ct (TyClass c)) of 
-                                                                                            (TyClass cls) -> if (subtyping cls t1 ct) && (typeOfCommands comms ctx) 
-                                                                                                             then case (mType m d ct) of 
-                                                                                                                       Just (ret, arg) -> ret == (TyClass t1) && arg == (map (\(t,n) -> t) p)
-                                                                                                                       _ -> True
-                                                                                                             else False
-                                                                                            _ -> False
+typeOfMethod (Class c d _ _ _) ctx ct (Met (Head (TyClass t1) m p) comms t) = let ctx1 = (map(\(a, b) -> (b, a)) p)++ctx
+                                                                                  ctx2 = ("this", (TyClass c)):ctx1
+                                                                                  ctx3 = updateContext p ctx2
+                                                                                  ctx4 = updateContextCommand comms ctx3
+                                                                                  in case (typeOf t ctx4 ct (TyClass c)) of 
+                                                                                          (TyClass cls) -> if (subtyping cls t1 ct) && (typeOfCommands comms ctx) 
+                                                                                                            then case (mType m d ct) of 
+                                                                                                                      Just (ret, arg) -> ret == (TyClass t1) && arg == (map (\(t,n) -> t) p)
+                                                                                                                      _ -> True
+                                                                                                            else False
+                                                                                          _ -> False
 
-typeOfMethod (Class c d _ _ _ _) ctx ct (Met (Head TyInt m p) comms t) = let ctx1 = (map(\(a, b) -> (b, a)) p)++ctx
-                                                                             ctx2 = ("this", (TyInt)):ctx1
-                                                                             ctx3 = updateContext p ctx2
-                                                                             ctx4 = updateContextCommand comms ctx3
-                                                                             in case (typeOf t ctx4 ct (TyInt)) of 
-                                                                                     TyInt -> case (mType m d ct) of 
-                                                                                                   Just (ret, arg) -> ret == TyInt && arg == (map (\(t,n) -> t) p) && (typeOfCommands comms ctx)
-                                                                                                   _ -> True
-                                                                                     TyError -> False
+typeOfMethod (Class c d _ _ _) ctx ct (Met (Head TyInt m p) comms t) = let  ctx1 = (map(\(a, b) -> (b, a)) p)++ctx
+                                                                            ctx2 = ("this", (TyInt)):ctx1
+                                                                            ctx3 = updateContext p ctx2
+                                                                            ctx4 = updateContextCommand comms ctx3
+                                                                            in case (typeOf t ctx4 ct (TyInt)) of 
+                                                                                    TyInt -> case (mType m d ct) of 
+                                                                                                  Just (ret, arg) -> ret == TyInt && arg == (map (\(t,n) -> t) p) && (typeOfCommands comms ctx)
+                                                                                                  _ -> True
+                                                                                    TyError -> False
 
 typeOfClass :: ClassDeclaration -> Context -> ClassTable -> Bool
-typeOfClass cls@(Class c d i a (Cons s ts ls lss) m) ctx ct = case (getFields d ct) of
-                                                                    Just f -> if (checkLists ts (f ++ a))
-                                                                              then if (all(\(a, b) -> a == b) lss) 
-                                                                                   then let p2 = map(\(a, b) -> b) ts
-                                                                                            p3 = ls ++ (map(\(a, b) -> a) lss)
-                                                                                            in ((p2 == p3) && (all (typeOfMethod cls ctx ct) m))
-                                                                                   else True
-                                                                              else False
-                                                                    Nothing -> False
+typeOfClass cls@(Class c d a (Cons s ts ls lss) m) ctx ct = case  (getFields d ct) of
+                                                                  Just f -> if (checkLists ts (f ++ a))
+                                                                            then if (all(\(a, b) -> a == b) lss) 
+                                                                                  then let p2 = map(\(a, b) -> b) ts
+                                                                                           p3 = ls ++ (map(\(a, b) -> a) lss)
+                                                                                           in ((p2 == p3) && (all (typeOfMethod cls ctx ct) m))
+                                                                                  else True
+                                                                            else False
+                                                                  Nothing -> False
 
 checkLists :: (Eq a) => [a] -> [a] -> Bool
 checkLists xs ys = null (xs \\ ys) && null (ys \\ xs)
@@ -251,11 +257,11 @@ typeCheck :: (ClassDeclaration, Context, ClassTable) -> Bool
 typeCheck (a, b, c) = typeOfClass a b c
 
 getCtx :: ClassDeclaration -> Context -> [(String, Ty)]
-getCtx (Class c d i [] (Cons s ts ls lss) m) ctx = ctx
-getCtx (Class c d i ((a,b):xs) (Cons s ts ls lss) m) ctx = let ctx' = (b,a):ctx in getCtx (Class c d i (xs) (Cons s ts ls lss) m) ctx'
+getCtx (Class c d [] (Cons s ts ls lss) m) ctx = ctx
+getCtx (Class c d ((a,b):xs) (Cons s ts ls lss) m) ctx = let ctx' = (b,a):ctx in getCtx (Class c d (xs) (Cons s ts ls lss) m) ctx'
 
 getCT :: ClassDeclaration -> ClassTable
-getCT cls@(Class c d i a (Cons s ts ls lss) m) = [(c, cls)]
+getCT cls@(Class c d a (Cons s ts ls lss) m) = [(c, cls)]
 
 buildTables :: ClassDeclaration -> Bool
 buildTables a = typeCheck (a, getCtx a [], getCT a)
