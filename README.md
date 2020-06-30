@@ -8,7 +8,7 @@ In order to do so, the following command is needed:<br>
 ```happy parser.y && ghc parser.hs -o [OUTPUT_NAME]```
 
 The next step is to create a Featherweight Java Code. After this, just run:<br>
-```./[OUTPUT_NAME] < [FEATHERWEIGHT_FILE_NAME] 2>/dev/null```
+```./[OUTPUT_NAME] < [FEATHERWEIGHT_FILE_NAME] 2>/dev/null```<br>
 and the type checking will be performed.
 
 <h5>Note: Adding the redirection of the standard error is useful since a message is shown when the end of file is reached. If there are any parsing errors the program won't
